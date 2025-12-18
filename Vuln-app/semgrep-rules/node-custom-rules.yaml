@@ -1,0 +1,187 @@
+rules:
+  # ===========================================================================
+  # A01: Broken Access Control (IDOR)
+  # ===========================================================================
+  - id: node-suspected-idor
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: >
+      Suspected IDOR. A parameter from the URL (req.params) is being used 
+      directly in a database query. Ensure you check if the user owns this ID.
+    metadata:
+      owasp: "A01:2021 - Broken Access Control"
+      cwe: "CWE-639"
+    pattern-either:
+      - pattern: $MODEL.findById(req.params.$ID)
+      # Quotes used to prevent YAML parsing errors with colons
+      - pattern: '$MODEL.findOne({ $KEY: req.params.$ID })'
+      - pattern: '$MODEL.delete({ $KEY: req.params.$ID })'
+      - pattern: '$MODEL.update({ $KEY: req.params.$ID }, ...)'
+
+  # ===========================================================================
+  # A01: LFI / Path Traversal
+  # ===========================================================================
+  - id: node-lfi-path-traversal
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: >
+      LFI detected. User input controls a file path. Attackers could read 
+      sensitive files.
+    metadata:
+      owasp: "A01:2021 - Broken Access Control"
+      cwe: "CWE-22"
+    mode: taint
+    pattern-sources:
+      - pattern: req.body
+      - pattern: req.query
+      - pattern: req.params
+      - pattern: req.files
+    pattern-sinks:
+      - pattern: fs.readFile(...)
+      - pattern: fs.readFileSync(...)
+      - pattern: res.sendFile(...)
+
+  # ===========================================================================
+  # A02: Cryptographic Failures
+  # ===========================================================================
+  - id: node-weak-crypto
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: "Use of weak hashing algorithm (MD5/SHA1)."
+    metadata:
+      owasp: "A02:2021 - Cryptographic Failures"
+      cwe: "CWE-327"
+    pattern-either:
+      - pattern: crypto.createHash('md5')
+      - pattern: crypto.createHash('sha1')
+
+  - id: node-hardcoded-jwt-secret
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: "Hardcoded secret detected in JWT signing."
+    metadata:
+      owasp: "A02:2021 - Cryptographic Failures"
+      cwe: "CWE-798"
+    pattern-either:
+      - pattern: 'jwt.sign($PAYLOAD, "...", ...)'
+      - pattern: 'jwt.verify($TOKEN, "...", ...)'
+
+  # ===========================================================================
+  # A03: Injection (SQLi, NoSQLi, RCE, XSS, SSTI)
+  # ===========================================================================
+  - id: node-sqli-concatenation
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: "SQL Injection detected via string concatenation."
+    metadata:
+      owasp: "A03:2021 - Injection"
+      cwe: "CWE-89"
+    pattern-either:
+      - pattern: $DB.query('...' + $INPUT + ..., ...)
+      - pattern: $DB.query(`...${$INPUT}...`, ...)
+
+  - id: node-nosqli-injection
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: "NoSQL Injection detected (req.body passed to DB query)."
+    metadata:
+      owasp: "A03:2021 - Injection"
+      cwe: "CWE-943"
+    pattern-either:
+      - pattern: $DB.find(req.body)
+      - pattern: $DB.findOne(req.body)
+
+  - id: node-command-injection-rce
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: "RCE detected. User input passed to OS command."
+    metadata:
+      owasp: "A03:2021 - Injection"
+      cwe: "CWE-78"
+    mode: taint
+    pattern-sources:
+      - pattern: req.body
+      - pattern: req.query
+    pattern-sinks:
+      - pattern: exec(...)
+      - pattern: spawn(...)
+
+  - id: node-ssti-injection
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: >
+      Server-Side Template Injection (SSTI). User input is being compiled 
+      as a template. This allows arbitrary code execution.
+    metadata:
+      owasp: "A03:2021 - Injection"
+      cwe: "CWE-1336"
+    mode: taint
+    pattern-sources:
+      - pattern: req.body
+      - pattern: req.query
+      - pattern: req.params
+    pattern-sinks:
+      # EJS
+      - pattern: ejs.render($INPUT, ...)
+      - pattern: ejs.compile($INPUT, ...)
+      # Pug / Jade
+      - pattern: pug.compile($INPUT, ...)
+      - pattern: pug.render($INPUT, ...)
+      # Handlebars
+      - pattern: handlebars.compile($INPUT, ...)
+      # Nunjucks
+      - pattern: nunjucks.renderString($INPUT, ...)
+      # Generic
+      - pattern: Mustache.render($INPUT, ...)
+      - pattern: dot.template($INPUT, ...)
+
+  - id: node-reflected-xss
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: "Reflected XSS detected."
+    metadata:
+      owasp: "A03:2021 - Injection"
+      cwe: "CWE-79"
+    mode: taint
+    pattern-sources:
+      - pattern: req.body
+      - pattern: req.query
+      - pattern: req.params
+    pattern-sinks:
+      - pattern: res.send(...)
+      - pattern: res.render(...)
+    pattern-sanitizers:
+      - pattern: escapeHtml(...)
+
+  # ===========================================================================
+  # A08: Insecure Deserialization
+  # ===========================================================================
+  - id: node-insecure-deserialization
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: "Insecure Deserialization (node-serialize)."
+    metadata:
+      owasp: "A08:2021 - Software and Data Integrity Failures"
+      cwe: "CWE-502"
+    pattern-either:
+      - pattern: require('node-serialize').unserialize(...)
+      - pattern: serialize.unserialize(...)
+
+  # ===========================================================================
+  # A10: Server-Side Request Forgery (SSRF)
+  # ===========================================================================
+  - id: node-ssrf-outbound
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: "Potential SSRF. User input controls outbound URL."
+    metadata:
+      owasp: "A10:2021 - SSRF"
+      cwe: "CWE-918"
+    mode: taint
+    pattern-sources:
+      - pattern: req.body
+      - pattern: req.query
+    pattern-sinks:
+      - pattern: axios.get(...)
+      - pattern: http.get(...)
+      - pattern: fetch(...)
